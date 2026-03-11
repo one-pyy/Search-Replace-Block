@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Code Studio (Patch & Diff)</title>
+    <style>
+        :root {
+            --bg-color: #1e1e1e;
+            --sidebar-bg: #252526; /* VS Code 侧边栏颜色 */
+            --header-bg: #2d2d2d;
+            --border-color: #3e3e42;
+            --accent-color: #007acc;
+            --text-color: #cccccc;
+            --active-tab-bg: #1e1e1e;
+            --inactive-tab-bg: #2d2d2d;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            height: 100vh;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* 侧边栏/Tab 切换 */
+        .sidebar {
+            width: 50px;
+            background-color: #333333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding-top: 10px;
+            border-right: 1px solid var(--border-color);
+            z-index: 10;
+        }
+
+        .tab-btn {
+            width: 40px;
+            height: 40px;
+            margin-bottom: 10px;
+            border: none;
+            background: transparent;
+            color: #858585;
+            cursor: pointer;
+            border-radius: 5px;
+            font-size: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: all 0.2s;
+        }
+
+        .tab-btn:hover { color: #fff; }
+        .tab-btn.active { color: #fff; border-left: 2px solid var(--accent-color); }
+
+        /* 主内容区 */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* 页面容器 (Tab Pages) */
+        .page {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            display: flex;
+            flex-direction: column;
+            opacity: 0;
+            pointer-events: none;
+            z-index: -1;
+            transition: opacity 0.2s;
+        }
+        .page.active { 
+            opacity: 1;
+            pointer-events: auto;
+            z-index: 1;
+        }
+
+        /* 顶部工具栏 */
+        .toolbar {
+            height: 40px;
+            background-color: var(--header-bg);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            padding: 0 15px;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+
+        h2 { font-size: 14px; margin: 0; color: #fff; font-weight: normal; margin-right: 10px; }
+
+        /* 通用按钮样式 */
+        button.btn {
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            padding: 4px 12px;
+            border-radius: 2px;
+            cursor: pointer;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        button.btn:hover { filter: brightness(1.1); }
+        button.btn-secondary { background-color: #3c3c3c; }
+        button.btn-text { background: transparent; color: #ccc; }
+        button.btn-text:hover { background: rgba(255,255,255,0.1); }
+
+        /* 下拉菜单 */
+        select.lang-select {
+            background-color: #3c3c3c;
+            color: #ccc;
+            border: 1px solid var(--border-color);
+            padding: 3px 8px;
+            border-radius: 2px;
+            font-size: 12px;
+            outline: none;
+        }
+
+        /* 布局网格 (Patch Page) */
+        .grid-layout {
+            display: flex;
+            flex: 1;
+            height: calc(100% - 40px);
+        }
+        .col {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--border-color);
+            min-width: 0;
+        }
+        .col:last-child { border-right: none; }
+
+        .panel-header {
+            padding: 6px 10px;
+            background-color: #252526;
+            font-size: 11px;
+            text-transform: uppercase;
+            font-weight: 600;
+            color: #999;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .editor-container { flex: 1; position: relative; }
+
+        /* Diff Page 特有 */
+        #diff-editor-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden; 
+            min-width: 0;
+        }
+
+        /* 状态条 */
+        #status-bar {
+            position: fixed;
+            bottom: 10px;
+            right: 20px;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-size: 12px;
+            z-index: 1000;
+            display: none;
+            color: white;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+        .status-success { background-color: #2da042; }
+        .status-error { background-color: #d03535; }
+
+        /* Loader */
+        #loader {
+            position: fixed; inset: 0; background: var(--bg-color);
+            display: flex; justify-content: center; align-items: center;
+            z-index: 9999; color: var(--accent-color);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="loader">Loading Editor...</div>
+
+    <!-- 侧边栏导航 -->
+    <div class="sidebar">
+        <button class="tab-btn active" onclick="switchTab('patch')" title="Patch Editor">🛠️</button>
+        <button class="tab-btn" onclick="switchTab('diff')" title="Diff Viewer">⚖️</button>
+    </div>
+
+    <div class="main-content">
+        
+        <!-- PAGE 1: Patch Editor -->
+        <div id="page-patch" class="page active">
+            <div class="toolbar">
+                <h2>AI Patch</h2>
+                <button class="btn" id="applyBtn">▶ 执行修改 (Apply)</button>
+                <div style="flex:1"></div>
+                <button class="btn btn-secondary" id="copyPromptBtn">📋 复制 Prompt</button>
+                <button class="btn btn-secondary" id="clearBtn">🗑️ 清空</button>
+            </div>
+            <div class="grid-layout">
+                <div class="col">
+                    <div class="panel-header">Source (原始代码)</div>
+                    <div id="editor-source" class="editor-container"></div>
+                </div>
+                <div class="col">
+                    <div class="panel-header">Patch (AI 补丁)</div>
+                    <div id="editor-patch" class="editor-container"></div>
+                </div>
+                <div class="col">
+                    <div class="panel-header">Result (结果)</div>
+                    <div id="editor-result" class="editor-container"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PAGE 2: Diff Viewer -->
+        <div id="page-diff" class="page">
+            <div class="toolbar">
+                <h2>Diff View</h2>
+                <!-- 语言选择 -->
+                <select id="langSelect" class="lang-select">
+                    <option value="plaintext">Plain Text</option>
+                    <option value="python">Python</option>
+                    <option value="javascript">JavaScript</option>
+                    <option value="typescript">TypeScript</option>
+                    <option value="java">Java</option>
+                    <option value="cpp">C++</option>
+                    <option value="html">HTML</option>
+                    <option value="css">CSS</option>
+                    <option value="json">JSON</option>
+                    <option value="sql">SQL</option>
+                    <option value="markdown">Markdown</option>
+                </select>
+                <button class="btn btn-text" id="clearFormatBtn" title="清除高亮">🚫 无格式</button>
+                
+                <div style="width: 1px; height: 20px; background: #444; margin: 0 10px;"></div>
+                
+                <label style="font-size: 12px; display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                    <input type="checkbox" id="ignoreTrimCheck"> 忽略空白差异
+                </label>
+            </div>
+            <div id="diff-editor-container"></div>
+        </div>
+
+    </div>
+
+    <div id="status-bar"></div>
+
+    <!-- Monaco Loader -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js"></script>
+    
+    <script>
+        require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' }});
+
+        // 全局变量
+        let sourceEditor, patchEditor, resultEditor; // Page 1 Editors
+        let diffEditor; // Page 2 Editor
+        let diffOriginalModel, diffModifiedModel; // Diff Models
+        let currentTab = 'patch';
+
+        require(['vs/editor/editor.main'], function() {
+            document.getElementById('loader').style.display = 'none';
+            initEditors();
+            loadState();
+        });
+
+        function initEditors() {
+            const commonOptions = {
+                theme: 'vs-dark',
+                fontSize: 14,
+                minimap: { enabled: false },
+                automaticLayout: true,
+                scrollBeyondLastLine: false,
+                wordWrap: 'on' // 全局默认开启
+            };
+
+            // --- Page 1 Editors ---
+            sourceEditor = monaco.editor.create(document.getElementById('editor-source'), {
+                language: 'python', ...commonOptions
+            });
+            patchEditor = monaco.editor.create(document.getElementById('editor-patch'), {
+                language: 'plaintext', ...commonOptions
+            });
+            resultEditor = monaco.editor.create(document.getElementById('editor-result'), {
+                language: 'python', ...commonOptions
+            });
+
+            // --- Page 2 Diff Editor ---
+            // 1. 创建 Diff 编辑器
+            diffEditor = monaco.editor.createDiffEditor(document.getElementById('diff-editor-container'), {
+                ...commonOptions,
+                originalEditable: true,
+                renderSideBySide: true,
+                ignoreTrimWhitespace: false,
+                wordWrap: 'on',      // 强制开启
+                diffWordWrap: 'on',  // 强制 Diff 换行
+                useInlineViewWhenSpaceIsLimited: false, // 禁用窄屏幕自动切行内模式（防止破坏重置左栏换行）
+                renderSideBySideInlineBreakpoint: 0
+            });
+
+            // 2. 创建并绑定 Model
+            diffOriginalModel = monaco.editor.createModel('', 'python');
+            diffModifiedModel = monaco.editor.createModel('', 'python');
+            diffEditor.setModel({
+                original: diffOriginalModel,
+                modified: diffModifiedModel
+            });
+
+            // 3. 【绝杀修复】强制同步左右两侧的配置
+            // Monaco Diff 有时会忽略初始配置，必须在 setModel 后再次强制 updateOptions
+            setTimeout(() => {
+                const wrapConfig = {
+                    wordWrap: 'on',
+                    wordWrapColumn: 0,
+                    wrappingStrategy: 'advanced'
+                };
+                
+                // 强制更新 Diff 容器配置
+                diffEditor.updateOptions({
+                    wordWrap: 'on',
+                    diffWordWrap: 'on'
+                });
+
+                // 强制更新内部编辑器配置
+                diffEditor.getOriginalEditor().updateOptions(wrapConfig);
+                diffEditor.getModifiedEditor().updateOptions(wrapConfig);
+            }, 50);
+
+            // 监听内容变化以保存状态
+            const save = () => saveState();
+            sourceEditor.onDidChangeModelContent(save);
+            patchEditor.onDidChangeModelContent(save);
+            resultEditor.onDidChangeModelContent(save);
+            diffOriginalModel.onDidChangeContent(save);
+            diffModifiedModel.onDidChangeContent(save);
+        }
+
+        // ---------------------------------------------------------
+        // Tab 切换与数据同步逻辑
+        // ---------------------------------------------------------
+        window.switchTab = function(tabName) {
+            // 1. UI 切换：显示/隐藏页面
+            document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
+            document.getElementById('page-' + tabName).classList.add('active');
+            
+            // 2. UI 切换：高亮按钮
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            const btns = document.querySelectorAll('.tab-btn');
+            if(tabName === 'patch') btns[0].classList.add('active');
+            else btns[1].classList.add('active');
+            // 3. 数据同步核心逻辑
+            if (tabName === 'diff') {
+                // --- 从 Patch 页 -> Diff 页 ---
+                // 将 Source 和 Result 的内容同步到 Diff 编辑器
+                const srcVal = sourceEditor.getValue();
+                const resVal = resultEditor.getValue();
+                
+                // 只有当内容不同时才更新，避免重置光标位置
+                if(diffOriginalModel.getValue() !== srcVal) diffOriginalModel.setValue(srcVal);
+                if(diffModifiedModel.getValue() !== resVal) diffModifiedModel.setValue(resVal);
+                
+                // 自动检测语言 (基于 Source)
+                const lang = detectLanguage(srcVal);
+                updateLanguage(lang);
+                
+                // 切换到可见状态后，只需简单触发布局更新
+                // 由于使用 opacity 替代了 display:none，不再受 0 宽度初始化 Bug 影响
+                setTimeout(() => {
+                    diffEditor.layout();
+                }, 10);
+                
+            } else if (tabName === 'patch') {
+                // --- 从 Diff 页 -> Patch 页 ---
+                // 如果用户在 Diff 页修改了代码，同步回 Patch 页
+                const originalVal = diffOriginalModel.getValue();
+                const modifiedVal = diffModifiedModel.getValue();
+                
+                if(sourceEditor.getValue() !== originalVal) sourceEditor.setValue(originalVal);
+                if(resultEditor.getValue() !== modifiedVal) resultEditor.setValue(modifiedVal);
+            }
+            currentTab = tabName;
+        };
+
+        // ---------------------------------------------------------
+        // 业务逻辑：应用补丁
+        // ---------------------------------------------------------
+        document.getElementById('applyBtn').addEventListener('click', () => {
+            const source = sourceEditor.getValue();
+            const patch = patchEditor.getValue();
+
+            if (!source || !patch) {
+                showToast('请先填写源码和补丁', 'error');
+                return;
+            }
+
+            try {
+                const newCode = applyPatchLogic(source, patch);
+                resultEditor.setValue(newCode);
+                showToast('修改成功！正在跳转对比...', 'success');
+                
+                // 自动跳转到 Diff 页面
+                setTimeout(() => {
+                    switchTab('diff');
+                }, 500);
+                
+            } catch (e) {
+                showToast(e.message, 'error');
+            }
+        });
+
+        function applyPatchLogic(source, patch) {
+            const blockRegex = /<<<<<<< SEARCH\s*([\s\S]*?)\s*=======\s*([\s\S]*?)\s*>>>>>>> REPLACE/g;
+            let match;
+            let currentCode = source;
+            let foundAny = false;
+
+            while ((match = blockRegex.exec(patch)) !== null) {
+                foundAny = true;
+                const searchBlock = match[1];
+                const replaceBlock = match[2];
+
+                const idx = currentCode.indexOf(searchBlock);
+                if (idx === -1) {
+                    // 容错重试
+                    const trimmedSearch = searchBlock.trim();
+                    if (currentCode.includes(trimmedSearch) && trimmedSearch.length > 10) {
+                        currentCode = currentCode.replace(trimmedSearch, replaceBlock.trim());
+                        continue;
+                    }
+                    const preview = searchBlock.trim().substring(0, 40).replace(/\n/g, '↵');
+                    throw new Error(`匹配失败：找不到代码块:\n"${preview}..."`);
+                }
+                currentCode = currentCode.replace(searchBlock, replaceBlock);
+            }
+
+            if (!foundAny) throw new Error('未发现有效的 SEARCH/REPLACE 块');
+            return currentCode;
+        }
+
+        // ---------------------------------------------------------
+        // Diff 页面功能：语言与格式
+        // ---------------------------------------------------------
+        const langSelect = document.getElementById('langSelect');
+        
+        // 切换语言
+        langSelect.addEventListener('change', (e) => {
+            updateLanguage(e.target.value);
+        });
+
+        // 清除格式
+        document.getElementById('clearFormatBtn').addEventListener('click', () => {
+            updateLanguage('plaintext');
+            langSelect.value = 'plaintext';
+        });
+
+        // 忽略空白
+        document.getElementById('ignoreTrimCheck').addEventListener('change', (e) => {
+            diffEditor.updateOptions({
+                ignoreTrimWhitespace: e.target.checked
+            });
+        });
+
+        function updateLanguage(lang) {
+            monaco.editor.setModelLanguage(diffOriginalModel, lang);
+            monaco.editor.setModelLanguage(diffModifiedModel, lang);
+            // 同步下拉框显示
+            if (['python','javascript','typescript','java','cpp','html','css','json','sql','markdown','plaintext'].includes(lang)) {
+                langSelect.value = lang;
+            }
+        }
+
+        function detectLanguage(code) {
+            if (!code) return 'plaintext';
+            if (code.includes('def ') || code.includes('import ') || code.includes('print(')) return 'python';
+            if (code.includes('function') || code.includes('const ') || code.includes('console.log')) return 'javascript';
+            if (code.includes('public class') || code.includes('System.out')) return 'java';
+            if (code.includes('#include')) return 'cpp';
+            if (code.trim().startsWith('<') && code.includes('html')) return 'html';
+            if (code.includes('{') && code.includes(':') && code.includes('}')) return 'json'; // 简单判断
+            return 'plaintext';
+        }
+
+        // ---------------------------------------------------------
+        // 状态保存与恢复
+        // ---------------------------------------------------------
+        function saveState() {
+            // 无论在哪个 Tab，我们都保存 Source, Patch, Result 的逻辑值
+            // 如果在 Diff Tab，Source=OriginalModel, Result=ModifiedModel
+            let s, p, r;
+            if (currentTab === 'patch') {
+                s = sourceEditor.getValue();
+                p = patchEditor.getValue();
+                r = resultEditor.getValue();
+            } else {
+                s = diffOriginalModel.getValue();
+                p = patchEditor.getValue(); // Patch 编辑器内容始终来自 Patch 编辑器
+                r = diffModifiedModel.getValue();
+            }
+            localStorage.setItem('acs_source', s);
+            localStorage.setItem('acs_patch', p);
+            localStorage.setItem('acs_result', r);
+        }
+
+        function loadState() {
+            const s = localStorage.getItem('acs_source') || '';
+            const p = localStorage.getItem('acs_patch') || '';
+            const r = localStorage.getItem('acs_result') || '';
+
+            sourceEditor.setValue(s);
+            patchEditor.setValue(p);
+            resultEditor.setValue(r);
+            
+            // 初始同步到 Diff
+            diffOriginalModel.setValue(s);
+            diffModifiedModel.setValue(r);
+        }
+
+        // 清空
+        document.getElementById('clearBtn').addEventListener('click', () => {
+            if(confirm('确定清空所有内容？')) {
+                sourceEditor.setValue('');
+                patchEditor.setValue('');
+                resultEditor.setValue('');
+                diffOriginalModel.setValue('');
+                diffModifiedModel.setValue('');
+                localStorage.clear();
+            }
+        });
+
+        // ---------------------------------------------------------
+        // Prompt 复制 (保持不变)
+        // ---------------------------------------------------------
+        document.getElementById('copyPromptBtn').addEventListener('click', () => {
+            const promptText = `Act as an expert software developer.\nOnce you understand the request you MUST:\n1. Think step-by-step.\n2. Describe changes using *SEARCH/REPLACE blocks*.\n\n# *SEARCH/REPLACE block* Rules:\n1. The *FULL* file path alone on a line.\n2. The opening fence and code language, eg: \`\`\`python\n3. For EACH change in the file, output a search/replace block:\n   <<<<<<< SEARCH\n   [Exact lines to find]\n   =======\n   [New lines to replace with]\n   >>>>>>> REPLACE\n4. CRITICAL: Output ALL search/replace blocks for a single file within the SAME code block. Do NOT close and reopen the \`\`\` fences between changes in the same file.\n5. The closing fence: \`\`\`\n\nEvery *SEARCH* section must *EXACTLY MATCH* the existing file content.\nInclude just the changing lines, and a few surrounding lines if needed for uniqueness.`.trim();
+            navigator.clipboard.writeText(promptText).then(() => showToast('Prompt 已复制', 'success'));
+        });
+
+        function showToast(msg, type) {
+            const bar = document.getElementById('status-bar');
+            bar.textContent = msg;
+            bar.className = type === 'error' ? 'status-error' : 'status-success';
+            bar.style.display = 'block';
+            setTimeout(() => { bar.style.display = 'none'; }, 3000);
+        }
+    </script>
+</body>
+</html>
