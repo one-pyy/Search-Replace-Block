@@ -18,3 +18,21 @@
 
 ### Modified Files
 - `diff.html`
+
+## [Session Log] Initial Git Setup
+### Original Requirements
+用户希望将当前目录初始化为Git仓库，并作为新的公开仓库上传至GitHub，以解决偶尔无tools情况下的不便。
+
+### Architectural Details & Notes
+- 初始化了本地仓库，将主分支设置为 `main`。
+- 因为原始文件夹包含空格和特殊字符 (`Search & Replace Block`)，自动使用 GitHub CLI (gh) 规范地创建了名为 `Search-Replace-Block` 的公开远程仓库。
+- 已自动关联远程并推送。
+
+### User Preferences & Corrections
+- 保持公开仓库以方便无环境时查看代码。
+
+### Mistakes & Learnings (CRITICAL)
+- PowerShell多行字符串的关闭标记 `'@` 必须独占一行且没有任何前导空格。前一次记录因语法闭合失败报错，已修正。
+
+### Modified Files
+- `AI_CONTEXT.md`
