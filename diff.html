@@ -375,11 +375,21 @@
                 const lang = detectLanguage(srcVal);
                 updateLanguage(lang);
                 
-                // 切换到可见状态后，只需简单触发布局更新
-                // 由于使用 opacity 替代了 display:none，不再受 0 宽度初始化 Bug 影响
-                setTimeout(() => {
-                    diffEditor.layout();
-                }, 10);
+                // 切换到可见状态后，确保 DOM 已经完全重绘
+                // 使用 requestAnimationFrame 保证布局计算的准确性
+                requestAnimationFrame(() => {
+                    setTimeout(() => {
+                        diffEditor.layout();
+                        
+                        // 【强制重绘高亮补丁】
+                        // Monaco 的 Diff 视图在换行模式下，偶尔会因为虚拟 DOM 视口计算偏差导致高亮（ViewZones）消失
+                        // 重新 setModel 会强制 Diff 引擎销毁并重建所有差异计算和高亮块
+                        const currentModel = diffEditor.getModel();
+                        if (currentModel) {
+                            diffEditor.setModel(currentModel);
+                        }
+                    }, 50);
+                });
                 
             } else if (tabName === 'patch') {
                 // --- 从 Diff 页 -> Patch 页 ---

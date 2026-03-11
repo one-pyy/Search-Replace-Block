@@ -56,3 +56,17 @@
 ### Modified Files
 - README.md
 - AI_CONTEXT.md
+## [2026-03-11] Session Log: Diff Editor Highlight Bug Fix
+### Original Requirements
+修复 Diff 页面中，差异高亮（修改的部分）有时会消失，但略缩图颜色依然存在的问题。
+
+### Architectural Details & Notes
+- 这个现象通常是因为 Monaco Editor 开启了 `wordWrap` 时，在调整窗口大小或在不同标签页之间切换（DOM 容器尺寸变动时），其内部使用的虚拟 DOM 对 `ViewZones`（负责绘制差异高亮的层）的视口计算出现了误差，导致本该显示的高亮被当作屏幕外元素剔除。
+- **解决方案**：在每次切换回 Diff 视图时，除了调用 `diffEditor.layout()` 外，使用 `requestAnimationFrame` 确保浏览器已经完全重绘（应用了 `active` class 和正确的尺寸），然后执行 `diffEditor.setModel(diffEditor.getModel())`，通过强制重设 Model 来让 Monaco Editor 完全销毁并重建所有差异计算与 ViewZones。
+
+### Mistakes & Learnings (CRITICAL)
+- **Mistake:** 在工具调试过程中，尝试使用未全局安装的 `puppeteer` 时发生了模块未找到的报错。
+- **Learning:** 运行一次性抓取脚本如果依赖特定的包，在不确定环境是否有对应模块时，应优先使用已知的安全方式（如 `curl`，或先本地初始化 npm 包），同时向用户清楚解释工具失败与用户问题本身无关。
+
+### Modified Files
+- `diff.html`
